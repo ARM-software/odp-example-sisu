@@ -1,0 +1,98 @@
+Copyright 2016, ARM Limited or its affiliates.  All rights reserved.
+
+- Supported targets -
+SISU can be run, in principle, on top of any machine that supports ODP Linux Generic. This effectively means that any machine running GNU/Linux where the libc library is available should be able to execute the benchmark successfully.
+SISU currently requires a 64-bit architecture for the IPSec sliding window implementation.
+
+- Cloning ODP repo -
+To get the repository run the following command:
+	git clone https://git.linaro.org/lng/odp.git
+	
+SISU depends on features provided by ODP v1.10 ("Monarch"). Please note that SISU may potentially not work with either earlier or later versions of ODP. To checkout ODP Monarch:
+	cd odp
+	git checkout v1.10.0.0
+
+- Dependencies -
+The following libraries need to be installed:
+   * libpcap-dev: SISU can optionally dump packets out to a pcap file. This library is hence necessary for it to run.
+   * OpenSSL: ODP linux-generic uses OpenSSL under the hood, which is used by the IPSec module, so this is also a requirement.
+
+- Modifying, compiling and installing ODP -
+The first step is to bootstrap and configure the building process, for which you need to run the following commands in this specific order:
+	./bootstrap
+	./configure
+	
+ODP needs to be slightly tweaked for SISU to run properly. The file we need to modify is "platform/linux-generic/include/odp_config_internal.h". Search for the define "ODP_CONFIG_PACKET_HEADROOM", and change its value to 194. SISU requires a bigger than standard headroom due to the high number of headers that are added to the packet during the various processing stages.
+
+Once this is done, we can compile and install ODP:
+	make
+	make install
+	
+Finally, specify the path to the ODP shared library so that it can be found later:
+	export LD_LIBRARY_PATH=<odp-dir>/lib
+
+- Building SISU -
+The first step is to change the Makefile to point to the right ODP directory. Look for the line "ODPDIR = ../odp" and change it appropriately.
+
+The easiest way to compile SISU is:
+	make sisu
+	
+This compiles it with the default compile-time parameters. There are a few things that can be tweaked:
+
+   * Disable IPSec: Set "no-ipsec" to "yes".
+   * Enable asserts: Set "DEBUG" to "yes".
+   * Enable accounting (e.g. number of cycles, L1 misses, etc): Set "sisu-acc" to "yes"
+   * Enable packet debugging: Set "sisu-dbg" to "yes"
+
+So, for instance, compile SISU using the command line below if you wish to disable IPSec support and enable performance events accounting:
+	make no-ipsec=yes sisu-acc=yes sisu
+
+The controller application also needs to be compiled:
+	make controller
+
+- Configuring and running SISU -
+
+SISU requires three different processes running simultaneously:
+   * Peer 1: A peer can act as a traffic source, a traffic sink, or both.
+   * Peer 2: A peer can act as a traffic source, a traffic sink, or both.
+   * Controller: The controller configures both peers (e.g. by creating entries in the various tables) and also determines for how long traffic should be running before the run is terminated.
+
+The above means that the SISU binary needs to be executed twice with the appropriate command line parameters. When a SISU process is executed, the following series of events takes place:
+   * Initial configuration (data structure/object allocation, ODP API Initialisation, etc).
+   * Configuration mode (the main thread waits for control messages/events from the controller process). Note that this is a blocking state and the application will make no further progress until the controller sends a "start" event to the application.
+   * Upon reception of a "start" event, packet processing, traffic generation and traffic termination threads are spawned.
+   * While packets are being processed, the application is still listening for controller events. A "stop" event will terminate all of the threads and end the application.
+
+Note that, although SISU can receive events at any point while traffic is being processed, dynamic control plane is currently not thread safe. This means, in practice, that any events that trigger a change in a shared data structure need to be sent during the second phase. The "stop" event, however, can be sent at any point and it's what triggers the end of the run and the printout of results.
+
+The following command line parameters can be used to modify the default behaviour of SISU:
+   * Use --tgen=c1,c2,...,cN to enable traffic generation (i.e. this SISU process will behave as a traffic source.) CX is a number that represents a core ID.
+   * Use --tterm=c1,c2,...,cN to enable traffic termination (i.e. this SISU process will behave as a traffic sink.) CX is a number that represents a core ID.
+   * Use --pp=c1,c2,...,cN to enable packet processing (i.e. this SISU process will process S1-U traffic.) CX is a number that represents a core ID.
+   * Use --pcap to save packets into a pcap file.
+   * Use --iface=ethX to configure an input interface. The Linux-Generic implementation hooks to the interface via a raw socket.
+   * Use --oface=ethX to configure an input interface. The Linux-Generic implementation hooks to the interface via a raw socket.
+
+Example:
+	(On machine 1) ./sisu --oface=eth1 --iface=lo --pp=3,1 --tgen=2
+	(On machine 2) ./sisu --oface=lo --iface=eth1 --pp=3,1 --tterm=2
+	(On machine 1, machine 2, or a third machine): ./controller --egress=PEER1_IP --ingress=PEER2_IP --runtime=20
+
+The example above will run two SISU processes on two physical machines:
+   * The first SISU process will generate traffic on core 2, process traffic on cores 3 and 1, and will not terminate any traffic. Interface eth1 will be used to send traffic.
+   * The second SISU process will terminate traffic on core 2, process traffic on cores 3 and 1, and will not generate any traffic. Interface eth1 will be used to receive traffic.
+   * The controller will configure both peers, initiate the benchmark and terminate it after 20 seconds.
+
+Notes:
+	The two SISU processes need to be "L2-visible", i.e. they need to be either directly connected, or through a hub/switch.
+	The controller communicates via regular UDP/IP sockets, which means that as long as it can "see" both SISU processes across the network it will work correctly. Currently UDP port 55555 is used for controller-SISU communication and is not per-peer configurable. This means that SISU processes need to be executed on separate machines.
+	The NICs in the particular setup that was used to test SISU can't be configured in promiscuous mode with the latest ODP version. As a workaround, the real MAC address needs to be hardcoded in main.cc. In addition to this, the controller application also needs to know the MAC of the receiver peer (controller_app/controller.cpp) in order to configure the ARP table appropriately.
+	The controller app could be thought of as a c-level script, in the sense that it sends a pre-determined series of events to the peers involved in the communication. Currently, it connects to peer1 (the "sender") and peer2 (the "receiver"), it adds a single entry to the sender's routing table, creates a bidirectional bearer and Security Association, initiates traffic, waits for RUNTIME seconds, and then ends the run. Other sets of input parameters will require modifying and re-compiling the controller application accordingly.
+
+- TROUBLE SHOOTING GUIDE -
+If sisu crashes, e.g in odp_buffer_free, ensure you have increased the packet
+headroom per the above instructions.
+
+- KNOWN PROBLEMS -
+It has been observed that the IP header of the received (decrypted and
+untunneled) payload datagram is mangled, missing the initial 8 bytes.
