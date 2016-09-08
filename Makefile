@@ -69,7 +69,17 @@ endif
 CXXFLAGS += -fno-exceptions -std=c++98
 LDFLAGS += -g -ggdb -fno-exceptions
 #ODP and dependent libraries
-LIBS += -lodp-linux -L/usr/local/lib -pthread -lrt -lodphelper-linux
+
+ODP_LIB = $(shell pkg-config --libs libodp-linux)
+ODPHELPER_LIB = $(shell pkg-config --libs libodphelper-linux)
+
+ODP_INCLUDEDIR = $(shell pkg-config --variable=includedir libodp-linux)
+ODPHELPER_INCLUDEDIR = $(shell pkg-config --variable=includedir libodphelper-linux)
+
+CCFLAGS  += -I$(ODP_INCLUDEDIR) -I$(ODPHELPER_INCLUDEDIR)
+LDFLAGS += $(ODP_LIB) $(ODPHELPER_LIB)
+
+LIBS += -L/usr/local/lib -pthread -lrt
 LIBS += -lpcap
 ifeq ($(PGO),instrument)
 $(warning PGO=$(PGO))
