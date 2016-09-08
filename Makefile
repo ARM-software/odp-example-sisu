@@ -69,11 +69,12 @@ endif
 CXXFLAGS += -fno-exceptions -std=c++98
 LDFLAGS += -g -ggdb -fno-exceptions
 #ODP and dependent libraries
+ODPLIB_NAME ?= odp-linux
 
-ODP_LIB = $(shell pkg-config --libs libodp-linux)
+ODP_LIB = $(shell pkg-config --libs lib$(ODPLIB_NAME))
 ODPHELPER_LIB = $(shell pkg-config --libs libodphelper-linux)
 
-ODP_INCLUDEDIR = $(shell pkg-config --variable=includedir libodp-linux)
+ODP_INCLUDEDIR = $(shell pkg-config --variable=includedir lib$(ODPLIB_NAME))
 ODPHELPER_INCLUDEDIR = $(shell pkg-config --variable=includedir libodphelper-linux)
 
 CCFLAGS  += -I$(ODP_INCLUDEDIR) -I$(ODPHELPER_INCLUDEDIR)
@@ -113,6 +114,8 @@ default:
 	@echo "clean       remove derived files"
 	@echo "tags        generate vi tags file"
 	@echo "etags       generate emacs tags file"
+	@echo
+	@echo "ODPLIB_NAME can be changed to odp-dpdk, default: odp-linux"
 
 all : $(TARGETS)
 
