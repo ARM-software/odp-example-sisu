@@ -32,7 +32,7 @@ Finally, specify the path to the ODP shared library so that it can be found late
 	export LD_LIBRARY_PATH=<odp-dir>/lib
 
 - Building SISU -
-The first step is to change the Makefile to point to the right ODP directory. Look for the line "ODPDIR = ../odp" and change it appropriately.
+The first step is to export PKG_CONFIG_PATH to point to the installed ODP pkgconfig directory that you want.
 
 The easiest way to compile SISU is:
 	make sisu
